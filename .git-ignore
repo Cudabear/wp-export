@@ -1,0 +1,4 @@
+wordpress.xml
+assets/*
+html/*
+node_modules
