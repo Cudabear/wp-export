@@ -43,11 +43,19 @@ fs.readFile(__dirname + '/' + wordpressXmlFile, function(err, data){
                     var temp = url.split('/');
                     var filename = temp[temp.length - 1];
 
+                    if(!fs.existsSync(imgPath+postDate.getFullYear())){
+                        fs.mkdirSync(imgPath+postDate.getFullYear());
+                    }
+
+                    if(!fs.existsSync(imgPath+postDate.getFullYear()+'/'+(postDate.getUTCMonth()+1))){
+                        fs.mkdirSync(imgPath+postDate.getFullYear()+'/'+(postDate.getUTCMonth()+1));   
+                    }
+
                     if(!fs.existsSync(imgPath + filename)){
                         console.log('downloading url ', url);
                         try {
                             request.head(url, function(err, res, body){
-                                request(url).pipe(fs.createWriteStream(imgPath + filename)).on('close', function(){
+                                request(url).pipe(fs.createWriteStream(imgPath+postDate.getFullYear()+'/'+(postDate.getMonth()+1)+'/' + filename)).on('close', function(){
                                     console.log('done downloading ', url);
                                     next();
                                 });
@@ -59,9 +67,8 @@ fs.readFile(__dirname + '/' + wordpressXmlFile, function(err, data){
                         console.log(imgPath + filename + ' already exists.  Delete it to update.');
                         next();
                     }
-
                     
-                }else{ // it's a blog post
+                } else { // it's a blog post
                     var htmlDirPath = htmlPath+postDate.getFullYear()+'/'+postDate.getMonth()+'/'+postDate.getDate();
 
                     if(!fs.existsSync(htmlPath+postDate.getFullYear())){
@@ -77,7 +84,51 @@ fs.readFile(__dirname + '/' + wordpressXmlFile, function(err, data){
                     }
                          
                     try {   
-                        fs.writeFileSync(htmlDirPath+'/'+title+'.html', item['content:encoded'], {flag: 'wx'});
+                        var data = item['content:encoded'][0];
+                        while(data.indexOf('[caption id="') >= 0){
+                            var startIndex = data.indexOf('[caption id="');
+                            var endIndex = data.indexOf('[/caption]') + 10;
+                            var substring = data.substring(startIndex, endIndex);
+
+                            var props = { };
+                            ['id', 'align', 'width'].forEach(function(property){
+                                var tempPropString = substring.substring(substring.indexOf(property+'="')+property.length+2)
+                                props[property] = tempPropString.substring(0, tempPropString.indexOf('"'));
+                            });
+
+                            if(substring.indexOf('<a') >= 0){
+                                props.image = substring.substring(substring.indexOf('<a'), substring.indexOf('</a>')+4);
+                                props.caption = substring.substring(substring.indexOf('</a>')+4, substring.indexOf('[/caption]'));
+
+                                var tempUrlSubstring = props.image.substring(props.image.indexOf('href="') + 6);
+                                var url = tempUrlSubstring.substring(0, tempUrlSubstring.indexOf('"'));
+                                var tempUrlArray = url.split('/');
+                                var newUrl = encodeURI('/res/blog-img/'+tempUrlArray[tempUrlArray.length-3]+'/'+tempUrlArray[tempUrlArray.length-2]+'/'+tempUrlArray[tempUrlArray.length-1]);
+
+                                if(url.indexOf('www.cudascubby.com') >= 0){
+                                    props.image = props.image.slice(0, props.image.indexOf('href="') + 6) + newUrl + tempUrlSubstring.slice(tempUrlSubstring.indexOf('"'));
+                                }
+                            } else {
+                                props.image = substring.substring(substring.indexOf('<img'), substring.indexOf('/>')+2);
+                                props.caption = substring.substring(substring.indexOf('/>')+2, substring.indexOf('[/caption]'));
+                            }
+
+                            var tempUrlSubstring = props.image.substring(props.image.indexOf('src="') + 5);
+                            var url = tempUrlSubstring.substring(0, tempUrlSubstring.indexOf('"'));
+                            var tempUrlArray = url.split('/');
+                            var newUrl = encodeURI('/res/blog-img/'+tempUrlArray[tempUrlArray.length-3]+'/'+tempUrlArray[tempUrlArray.length-2]+'/'+tempUrlArray[tempUrlArray.length-1]);
+
+                            if(url.indexOf('www.cudascubby.com') >= 0){
+                                props.image = props.image.slice(0, props.image.indexOf('src="') + 5) + newUrl + tempUrlSubstring.slice(tempUrlSubstring.indexOf('"'));
+                            }
+
+                            data = data.replace(substring, '');
+                            data = data.slice(0, startIndex) + '<div id="'+props.id+'" style="width: '+ props.width +'" class="wp-caption '+props.align+'">'
+                                +props.image+'<p>'+props.caption+'</p></div>' + data.slice(startIndex);
+                        }
+
+                        item['content:encoded'][0] = data;
+                        fs.writeFileSync(htmlDirPath+'/'+title+'.html', data, {flag: 'wx'});
                         console.log('wrote '+htmlDirPath+'/'+title+'.html');
                     } catch (e) {
                         console.log('could not write '+htmlDirPath+'/'+title+'.html' + ' does it already exist?')
